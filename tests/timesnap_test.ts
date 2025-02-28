@@ -25,6 +25,23 @@ Clarinet.test({
 });
 
 Clarinet.test({
+  name: "Ensure cannot mint if not contract owner",
+  async fn(chain: Chain, accounts: Map<string, Account>) {
+    const wallet1 = accounts.get("wallet_1")!;
+    const wallet2 = accounts.get("wallet_2")!;
+    
+    let block = chain.mineBlock([
+      Tx.contractCall("timesnap", "mint",
+        [types.uint(1), types.principal(wallet2.address), types.uint(100), types.utf8("ipfs://test")],
+        wallet1.address
+      )
+    ]);
+    
+    assertEquals(block.receipts[0].result, `${types.err(102)}`);
+  },
+});
+
+Clarinet.test({
   name: "Ensure cannot transfer expired NFT",
   async fn(chain: Chain, accounts: Map<string, Account>) {
     const deployer = accounts.get("deployer")!;
@@ -48,5 +65,30 @@ Clarinet.test({
     ]);
     
     assertEquals(block.receipts[0].result, `${types.err(101)}`);
+  },
+});
+
+Clarinet.test({
+  name: "Ensure cannot transfer if not token owner",
+  async fn(chain: Chain, accounts: Map<string, Account>) {
+    const deployer = accounts.get("deployer")!;
+    const wallet1 = accounts.get("wallet_1")!;
+    const wallet2 = accounts.get("wallet_2")!;
+    
+    let block = chain.mineBlock([
+      Tx.contractCall("timesnap", "mint",
+        [types.uint(1), types.principal(wallet1.address), types.uint(100), types.utf8("ipfs://test")],
+        deployer.address
+      )
+    ]);
+
+    block = chain.mineBlock([
+      Tx.contractCall("timesnap", "transfer",
+        [types.uint(1), types.principal(wallet1.address), types.principal(wallet2.address)],
+        wallet2.address
+      )
+    ]);
+    
+    assertEquals(block.receipts[0].result, `${types.err(104)}`);
   },
 });
