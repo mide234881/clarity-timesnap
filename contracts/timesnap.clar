@@ -4,12 +4,18 @@
 ;; Define NFT token
 (define-non-fungible-token timesnap uint)
 
+;; Data Variables
+(define-data-var last-token-id uint u0)
+(define-data-var total-supply uint u0)
+
 ;; Constants
 (define-constant contract-owner tx-sender)
 (define-constant err-expired (err u101))           ;; Token has expired
 (define-constant err-owner-only (err u102))        ;; Only contract owner can perform this action
 (define-constant err-token-not-found (err u103))   ;; Token doesn't exist
 (define-constant err-not-token-owner (err u104))   ;; Sender doesn't own the token
+(define-constant err-token-exists (err u105))      ;; Token ID already exists
+(define-constant err-invalid-duration (err u106))  ;; Invalid duration specified
 
 ;; SIP-009 Interface
 (impl-trait 'SP2PABAF9FTAJYNFZH93XENAJ8FVY99RRM50D2JG9.nft-trait.nft-trait)
@@ -32,19 +38,21 @@
 ;; Mint new NFT
 (define-public (mint (token-id uint) (recipient principal) (duration uint) (metadata-uri (string-utf8 256)))
   (let ((expires-at (+ block-height duration)))
-    (if (is-eq tx-sender contract-owner)
-      (begin
-        (try! (nft-mint? timesnap token-id recipient))
-        (map-set token-metadata token-id
-          {
-            owner: recipient,
-            created-at: block-height,
-            expires-at: expires-at,
-            metadata-uri: metadata-uri
-          }
-        )
-        (ok true))
-      err-owner-only)))
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (> duration u0) err-invalid-duration)
+    (asserts! (is-none (map-get? token-metadata token-id)) err-token-exists)
+    (try! (nft-mint? timesnap token-id recipient))
+    (var-set last-token-id token-id)
+    (var-set total-supply (+ (var-get total-supply) u1))
+    (map-set token-metadata token-id
+      {
+        owner: recipient,
+        created-at: block-height,
+        expires-at: expires-at,
+        metadata-uri: metadata-uri
+      }
+    )
+    (ok true)))
 
 ;; Transfer NFT if not expired
 (define-public (transfer (token-id uint) (sender principal) (recipient principal))
@@ -55,6 +63,16 @@
     (map-set token-metadata token-id
       (merge token-data { owner: recipient })
     )
+    (ok true)))
+
+;; Burn expired token
+(define-public (burn (token-id uint))
+  (let ((token-data (unwrap! (map-get? token-metadata token-id) err-token-not-found)))
+    (asserts! (>= block-height (get expires-at token-data)) err-expired)
+    (asserts! (is-token-owner token-id tx-sender) err-not-token-owner)
+    (try! (nft-burn? timesnap token-id tx-sender))
+    (map-delete token-metadata token-id)
+    (var-set total-supply (- (var-get total-supply) u1))
     (ok true)))
 
 ;; Read-only functions
@@ -68,9 +86,12 @@
 (define-read-only (get-owner (token-id uint))
   (nft-get-owner? timesnap token-id))
 
+(define-read-only (get-total-supply)
+  (ok (var-get total-supply)))
+
 ;; SIP-009 required functions
 (define-read-only (get-last-token-id)
-  (ok u0))
+  (ok (var-get last-token-id)))
 
 (define-read-only (get-token-uri (token-id uint))
   (let ((token-data (unwrap! (map-get? token-metadata token-id) err-token-not-found)))
